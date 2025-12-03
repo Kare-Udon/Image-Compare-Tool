@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import TwentyTwenty from 'react-twentytwenty'
 import { useAppState } from '../appState/AppStateProvider'

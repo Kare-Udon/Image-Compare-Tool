@@ -21,10 +21,7 @@ const originalInnerHeight = window.innerHeight
 const resizeObservers: ResizeObserverCallback[] = []
 
 class ResizeObserverMock {
-  private readonly callback: ResizeObserverCallback
-
   constructor(callback: ResizeObserverCallback) {
-    this.callback = callback
     resizeObservers.push(callback)
   }
 
@@ -80,8 +77,8 @@ function renderWithState(snapshot: PersistedState) {
 beforeEach(() => {
   vi.clearAllMocks()
   resizeObservers.length = 0
-  // @ts-expect-error jsdom 缺少 ResizeObserver，测试中用轻量 mock
-  global.ResizeObserver = ResizeObserverMock
+  // jsdom 缺省缺少 ResizeObserver，这里注入轻量 mock
+  globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver
 
   if (!('createObjectURL' in URL)) {
     // @ts-expect-error

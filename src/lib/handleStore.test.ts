@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type StoreValue = Map<string, unknown>
 
+type Mutable<T> = {
+  -readonly [P in keyof T]: T[P]
+}
+
+type MutableRequest<T> = Mutable<IDBRequest<T>>
+type MutableOpenRequest = Mutable<IDBOpenDBRequest>
+
 function createFakeHandle(name: string): FileSystemFileHandle {
   return {
     kind: 'file',
@@ -16,32 +23,43 @@ class FakeTransaction {
   onerror: ((this: IDBTransaction, ev: Event) => void) | null = null
   onabort: ((this: IDBTransaction, ev: Event) => void) | null = null
 
-  constructor(private store: StoreValue) {}
+  private store: StoreValue
+
+  constructor(store: StoreValue) {
+    this.store = store
+  }
 
   objectStore(): IDBObjectStore {
     return new FakeObjectStore(this.store, this) as unknown as IDBObjectStore
   }
 
   complete() {
-    this.oncomplete?.(new Event('complete'))
+    const tx = this as unknown as IDBTransaction
+    this.oncomplete?.call(tx, new Event('complete'))
   }
 }
 
 function createRequest<T>() {
-  const request: any = {
+  const request = {
     onsuccess: null,
     onerror: null,
-    result: undefined as T,
-    readyState: 'pending',
+    result: undefined as unknown as T,
+    readyState: 'pending' as IDBRequestReadyState,
     source: null,
     transaction: null,
     error: null,
-  }
-  return request as IDBRequest<T>
+  } as unknown as MutableRequest<T>
+  return request
 }
 
 class FakeObjectStore {
-  constructor(private store: StoreValue, private tx: FakeTransaction) {}
+  private store: StoreValue
+  private tx: FakeTransaction
+
+  constructor(store: StoreValue, tx: FakeTransaction) {
+    this.store = store
+    this.tx = tx
+  }
 
   put(value: unknown, key?: IDBValidKey) {
     const request = createRequest<IDBValidKey>()
@@ -49,7 +67,7 @@ class FakeObjectStore {
     queueMicrotask(() => {
       this.store.set(String(key), value)
       request.result = key as IDBValidKey
-      request.onsuccess?.(new Event('success'))
+      request.onsuccess?.call(request as IDBRequest<IDBValidKey>, new Event('success'))
       this.tx.complete()
     })
 
@@ -61,7 +79,7 @@ class FakeObjectStore {
 
     queueMicrotask(() => {
       request.result = this.store.get(String(key))
-      request.onsuccess?.(new Event('success'))
+      request.onsuccess?.call(request as IDBRequest<unknown>, new Event('success'))
       this.tx.complete()
     })
 
@@ -96,28 +114,27 @@ function installFakeIndexedDB() {
   const db = new FakeDatabase()
   const factory: IDBFactory = {
     open: () => {
-      const request: IDBOpenDBRequest = {
-        onsuccess: null,
-        onerror: null,
+      const request: MutableOpenRequest = {
+        ...createRequest<IDBDatabase>(),
         onblocked: null,
         onupgradeneeded: null,
         result: db as unknown as IDBDatabase,
-        readyState: 'pending',
-        source: null,
-        transaction: null,
-        error: null,
-      }
+      } as MutableOpenRequest
 
       queueMicrotask(() => {
-        request.onupgradeneeded?.(new Event('upgradeneeded') as IDBVersionChangeEvent)
-        request.onsuccess?.(new Event('success'))
+        request.onupgradeneeded?.call(
+          request as IDBOpenDBRequest,
+          new Event('upgradeneeded') as IDBVersionChangeEvent,
+        )
+        request.onsuccess?.call(request as IDBOpenDBRequest, new Event('success'))
       })
 
-      return request
+      return request as IDBOpenDBRequest
     },
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     deleteDatabase: () => ({} as IDBOpenDBRequest),
     cmp: () => 0,
+    databases: async () => [],
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

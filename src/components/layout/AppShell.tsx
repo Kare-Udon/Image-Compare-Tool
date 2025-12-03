@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'react'
-import { ReactNode, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 type AppShellProps = {
   sidebar: ReactNode

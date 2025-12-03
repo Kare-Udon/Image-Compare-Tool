@@ -1,6 +1,31 @@
 import type { GroupId, ImageEntry } from '../types'
 import { getHandle, saveHandle } from './handleStore'
 
+type FilePickerAcceptType = {
+  description?: string
+  accept: Record<string, string[]>
+}
+
+type FilePickerOptions = {
+  multiple?: boolean
+  types?: FilePickerAcceptType[]
+  excludeAcceptAllOption?: boolean
+}
+
+type OpenFilePickerOptions = FilePickerOptions & {
+  id?: string
+  startIn?: FileSystemHandle | string
+}
+
+type FilePermissionDescriptor = {
+  mode?: 'read' | 'readwrite'
+}
+
+type FileSystemFileHandleWithPermission = FileSystemFileHandle & {
+  queryPermission?: (descriptor?: FilePermissionDescriptor) => Promise<PermissionState>
+  requestPermission?: (descriptor?: FilePermissionDescriptor) => Promise<PermissionState>
+}
+
 const IMAGE_PICKER_TYPES: FilePickerAcceptType[] = [
   {
     description: '图片文件',
@@ -84,8 +109,9 @@ function createId(prefix: string): string {
 }
 
 async function ensureReadPermission(handle: FileSystemFileHandle): Promise<boolean> {
-  const queryPermission = handle.queryPermission?.bind(handle)
-  const requestPermission = handle.requestPermission?.bind(handle)
+  const withPermission = handle as FileSystemFileHandleWithPermission
+  const queryPermission = withPermission.queryPermission?.bind(withPermission)
+  const requestPermission = withPermission.requestPermission?.bind(withPermission)
 
   if (!queryPermission || !requestPermission) return true
 
