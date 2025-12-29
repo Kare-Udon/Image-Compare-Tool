@@ -61,27 +61,22 @@ function createDataTransfer(items: DataTransferItem[], files?: File[]): DataTran
 describe('pickImagesForGroup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (globalThis as any).showOpenFilePicker
   })
 
-  it('缺少文件选择 API 时使用 input 选择器导入文件', async () => {
-    mockedSaveHandle.mockResolvedValue(true)
-
-    const promise = pickImagesForGroup('group-1')
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement | null
-
-    expect(input).not.toBeNull()
-    expect(input?.multiple).toBe(true)
-    expect(input?.accept).toContain('png')
-
-    if (!input) throw new Error('file input not found')
-
-    const file = new File(['demo'], 'fallback.png', { type: 'image/png' })
+  async function simulateInputSelection(files: File[]) {
+    // 等待 input 被挂载到 DOM
+    await vi.waitFor(() => {
+      expect(document.querySelector('input[type="file"]')).not.toBeNull()
+    })
+    
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    
     const fileList = {
-      0: file,
-      length: 1,
-      item: (index: number) => (index === 0 ? file : null),
+      length: files.length,
+      item: (index: number) => files[index] ?? null,
+      [Symbol.iterator]: function* () {
+        yield* files
+      },
     } as unknown as FileList
 
     Object.defineProperty(input, 'files', {
@@ -90,6 +85,15 @@ describe('pickImagesForGroup', () => {
     })
 
     input.dispatchEvent(new Event('change'))
+  }
+
+  it('使用 input 选择器导入文件', async () => {
+    mockedSaveHandle.mockResolvedValue(true)
+
+    const promise = pickImagesForGroup('group-1')
+    
+    const file = new File(['demo'], 'fallback.png', { type: 'image/png' })
+    await simulateInputSelection([file])
 
     const result = await promise
     expect(result).toHaveLength(1)
@@ -102,8 +106,10 @@ describe('pickImagesForGroup', () => {
 
     try {
       const promise = pickImagesForGroup('group-cancel')
-      expect(document.querySelector('input[type="file"]')).not.toBeNull()
-
+      
+      // 等待 input 挂载
+      await vi.waitUntil(() => document.querySelector('input[type="file"]') !== null)
+      
       window.dispatchEvent(new Event('focus'))
       await vi.runAllTimersAsync()
 
@@ -116,27 +122,29 @@ describe('pickImagesForGroup', () => {
   })
 
   it('可以在选择文件后生成 ImageEntry 并保存句柄', async () => {
-    const handle = createMockHandle('demo.png')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(globalThis as any).showOpenFilePicker = vi.fn().mockResolvedValue([handle])
     mockedSaveHandle.mockResolvedValue(true)
+    const file = new File(['demo'], 'demo.png', { type: 'image/png' })
 
-    const result = await pickImagesForGroup('group-2')
+    const promise = pickImagesForGroup('group-2')
+    await simulateInputSelection([file])
+    const result = await promise
 
     expect(result).toHaveLength(1)
     expect(result[0].groupId).toBe('group-2')
     expect(result[0].fileName).toBe('demo.png')
     expect(result[0].handleKey).toContain('handle-group-2')
     expect(mockedSaveHandle).toHaveBeenCalledTimes(1)
+    expect(mockedSaveHandle).toHaveBeenCalledWith(expect.any(String), file)
   })
 
   it('保存句柄失败时跳过对应文件', async () => {
-    const handle = createMockHandle('skip.png')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(globalThis as any).showOpenFilePicker = vi.fn().mockResolvedValue([handle])
     mockedSaveHandle.mockResolvedValue(false)
+    const file = new File(['skip'], 'skip.png', { type: 'image/png' })
 
-    const result = await pickImagesForGroup('group-3')
+    const promise = pickImagesForGroup('group-3')
+    await simulateInputSelection([file])
+    const result = await promise
+    
     expect(result).toEqual([])
   })
 })
@@ -147,24 +155,9 @@ describe('importDroppedImagesForGroup', () => {
     mockedSaveHandle.mockResolvedValue(true)
   })
 
-  it('支持通过拖拽的文件句柄导入图片', async () => {
-    const handle = createMockHandle('drop.png')
-    const item = {
-      kind: 'file',
-      type: 'image/png',
-      getAsFileSystemHandle: vi.fn().mockResolvedValue(handle),
-      getAsFile: vi.fn(),
-    } as unknown as DataTransferItem
+  // 已移除 "支持通过拖拽的文件句柄导入图片" 测试用例，因为不再支持该路径
 
-    const dataTransfer = createDataTransfer([item])
-    const entries = await importDroppedImagesForGroup('group-drop', dataTransfer)
-
-    expect(entries).toHaveLength(1)
-    expect(entries[0].fileName).toBe('drop.png')
-    expect(mockedSaveHandle).toHaveBeenCalledWith(expect.stringContaining('handle-group-drop'), handle)
-  })
-
-  it('在缺少文件句柄时会退化使用 File 对象', async () => {
+  it('使用 File 对象导入拖拽的图片', async () => {
     const file = new File(['demo'], 'drag.jpg', { type: 'image/jpeg' })
     const item = {
       kind: 'file',

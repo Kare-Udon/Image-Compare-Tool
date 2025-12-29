@@ -27,3 +27,8 @@
 - 推荐使用支持 File System Access API 的现代 Chromium 浏览器，能获得最佳的文件读取与拖拽体验。
 - 若需本地预览，可执行 `pnpm install && pnpm run dev` 启动开发服务器后在浏览器访问显示的地址。
 - 构建、测试与代码检查命令：`pnpm run build`、`pnpm test`、`pnpm run lint`。
+
+## 开发提示
+
+- 构建基于 Vite 7 + Vitest 2，`vitest.config.d.ts` 扩展了 Vite 配置的 `test` 字段以保证类型检查通过。
+- File System Access 工具在 `src/lib/fsAccess.ts` 内定义了缺失的类型，并在权限缺失时自动回退到隐藏的文件选择器；测试时出现的权限/兼容性日志属于预期行为。

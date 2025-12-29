@@ -1,22 +1,6 @@
 import type { GroupId, ImageEntry } from '../types'
 import { getHandle, saveHandle } from './handleStore'
 
-type FilePickerAcceptType = {
-  description?: string
-  accept: Record<string, string[]>
-}
-
-type FilePickerOptions = {
-  multiple?: boolean
-  types?: FilePickerAcceptType[]
-  excludeAcceptAllOption?: boolean
-}
-
-type OpenFilePickerOptions = FilePickerOptions & {
-  id?: string
-  startIn?: FileSystemHandle | string
-}
-
 type FilePermissionDescriptor = {
   mode?: 'read' | 'readwrite'
 }
@@ -26,28 +10,10 @@ type FileSystemFileHandleWithPermission = FileSystemFileHandle & {
   requestPermission?: (descriptor?: FilePermissionDescriptor) => Promise<PermissionState>
 }
 
-const IMAGE_PICKER_TYPES: FilePickerAcceptType[] = [
-  {
-    description: '图片文件',
-    accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif'],
-    },
-  },
-]
-
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
 const IMAGE_ACCEPT = IMAGE_EXTENSIONS.join(',')
 
-type FilePicker = (options?: OpenFilePickerOptions) => Promise<FileSystemFileHandle[]>
 type FileSource = FileSystemFileHandle | File
-type DataTransferItemWithHandle = DataTransferItem & {
-  getAsFileSystemHandle?: () => Promise<FileSystemHandle>
-}
-
-function resolveFilePicker(): FilePicker | null {
-  const candidate = (globalThis as { showOpenFilePicker?: FilePicker }).showOpenFilePicker
-  return typeof candidate === 'function' ? candidate : null
-}
 
 async function pickWithFallbackInput(): Promise<File[]> {
   if (typeof document === 'undefined' || typeof window === 'undefined' || !document.body) {
@@ -129,27 +95,8 @@ async function ensureReadPermission(handle: FileSystemFileHandle): Promise<boole
 }
 
 export async function pickImagesForGroup(groupId: GroupId): Promise<ImageEntry[]> {
-  const picker = resolveFilePicker()
-  const sources = await (picker
-    ? (async () => {
-        try {
-          return await picker({
-            multiple: true,
-            types: IMAGE_PICKER_TYPES,
-          })
-        } catch (error) {
-          const isAbort = error instanceof DOMException && error.name === 'AbortError'
-          if (!isAbort) {
-            console.warn('选择文件失败，返回空列表。', error)
-          }
-          return []
-        }
-      })()
-    : (async () => {
-        console.warn('当前环境不支持 File System Access，将使用 input 选择文件。')
-        return await pickWithFallbackInput()
-      })())
-
+  // 强制使用传统的 input 方式选择文件，不再尝试使用 File System Access API
+  const sources = await pickWithFallbackInput()
   return createEntriesFromSources(groupId, sources)
 }
 
@@ -161,13 +108,15 @@ export async function readFileFromHandle(handleKey: string): Promise<Blob | null
     return handle
   }
 
-  const granted = await ensureReadPermission(handle)
-  if (!granted) {
-    console.warn('未获得文件读取权限，返回 null。')
-    return null
-  }
-
+  // 虽然现在主要路径是 Blob (File)，但如果 DB 中有旧的 FileSystemHandle，
+  // 仍然尝试读取（如果浏览器支持），否则可能需要用户重新添加。
+  // 这里保留对旧数据的兼容逻辑，但不再主动请求权限。
   try {
+    const granted = await ensureReadPermission(handle)
+    if (!granted) {
+      console.warn('未获得文件读取权限，返回 null。')
+      return null
+    }
     const file = await handle.getFile()
     return file
   } catch (error) {
@@ -230,19 +179,7 @@ async function resolveDataTransferSources(dataTransfer: DataTransfer): Promise<F
   }
 
   for (const item of items) {
-    const handleGetter = (item as DataTransferItemWithHandle).getAsFileSystemHandle
-    if (typeof handleGetter === 'function') {
-      try {
-        const handle = await handleGetter.call(item)
-        if (handle && (handle as FileSystemHandle).kind === 'file') {
-          track(handle as FileSystemFileHandle)
-          continue
-        }
-      } catch (error) {
-        console.warn('解析拖拽文件句柄失败，已跳过该项。', error)
-      }
-    }
-
+    // 移除对 getAsFileSystemHandle 的尝试，只使用标准的 getAsFile
     const file = item.getAsFile?.()
     track(file ?? undefined)
   }
